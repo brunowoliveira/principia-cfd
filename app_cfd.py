@@ -254,8 +254,8 @@ def gerar_pdf_cfd(ies_nome, saldo_devedor, n, pmt, parcelas):
     rod = Table([[
         P("Principia Educação  —  Crédito PJ / DCM", size=7.5,
           color=colors.HexColor("#546E7A")),
-        P("bruno.oliveira@principia.net", size=7.5,
-          color=colors.HexColor("#546E7A"), align=TA_RIGHT),
+        P("Documento gerado automaticamente. Válido mediante assinatura do TCD.",
+          size=7.5, color=colors.HexColor("#546E7A"), align=TA_RIGHT),
     ]], colWidths=[W*0.5, W*0.5])
     story.append(rod)
     doc.build(story)
@@ -304,11 +304,13 @@ with st.form("form_cfd"):
             "Saldo Devedor a Renegociar (R$)",
             min_value=0.01, value=100_000.00, step=1_000.00, format="%.2f",
         )
+        st.caption(f"✦ {fmt_brl(saldo_devedor)}")
     with col2:
         garantido_medio = st.number_input(
             "Garantido Médio — Últimos 3 Meses (R$)",
             min_value=0.01, value=80_000.00, step=1_000.00, format="%.2f",
         )
+        st.caption(f"✦ {fmt_brl(garantido_medio)}")
         data_repasse = st.date_input(
             "Data do Repasse em Aberto",
             value=date.today(),
