@@ -5,8 +5,8 @@ Streamlit web app para o time comercial calcular propostas de renegociação.
 Instalar:  pip install streamlit reportlab pillow python-dateutil
 Rodar:     streamlit run app_cfd.py
 """
-import io, os, base64
-from datetime import date
+import io, os, base64, sqlite3
+from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
 import streamlit as st
@@ -123,6 +123,50 @@ LOGO_PATH = (
     if os.path.exists(os.path.join(_dir, "principia_branco.png"))
     else os.path.join(_dir, "..", "logos", "principia_branco.png")
 )
+
+# ── Banco de dados de consultas ───────────────────────────────────────────────
+DB_PATH = os.path.join(_dir, "registros_cfd.db")
+
+def _init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS consultas (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_consulta    TEXT,
+                nome_ies         TEXT,
+                saldo_devedor    REAL,
+                garantido_medio  REAL,
+                data_repasse     TEXT,
+                primeiro_venc    TEXT,
+                pmt_a            REAL,
+                pmt_b            REAL,
+                ok_a             INTEGER,
+                ok_b             INTEGER,
+                plano_exportado  TEXT
+            )
+        """)
+
+def _registrar(nome_ies, saldo_devedor, garantido_medio,
+               data_repasse, primeiro_venc, pmt_a, pmt_b, ok_a, ok_b):
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute("""
+            INSERT INTO consultas
+              (data_consulta,nome_ies,saldo_devedor,garantido_medio,
+               data_repasse,primeiro_venc,pmt_a,pmt_b,ok_a,ok_b,plano_exportado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,NULL)
+        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+              nome_ies, saldo_devedor, garantido_medio,
+              str(data_repasse), str(primeiro_venc),
+              pmt_a, pmt_b, int(ok_a), int(ok_b)))
+        return cur.lastrowid
+
+def _marcar_export(record_id, plano):
+    if record_id is None: return
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE consultas SET plano_exportado=? WHERE id=?",
+                     (plano, record_id))
+
+_init_db()
 
 TAXA_A  = 3.5 / 100   # 3x
 TAXA_B  = 5.0 / 100   # 6x
@@ -302,15 +346,13 @@ with st.form("form_cfd"):
         )
         saldo_devedor = st.number_input(
             "Saldo Devedor a Renegociar (R$)",
-            min_value=0.01, value=100_000.00, step=1_000.00, format="%.2f",
+            min_value=0.01, value=100_000.00, step=1_000.00, format="%,.2f",
         )
-        st.caption(f"✦ {fmt_brl(saldo_devedor)}")
     with col2:
         garantido_medio = st.number_input(
             "Garantido Médio — Últimos 3 Meses (R$)",
-            min_value=0.01, value=80_000.00, step=1_000.00, format="%.2f",
+            min_value=0.01, value=80_000.00, step=1_000.00, format="%,.2f",
         )
-        st.caption(f"✦ {fmt_brl(garantido_medio)}")
         data_repasse = st.date_input(
             "Data do Repasse em Aberto",
             value=date.today(),
@@ -336,6 +378,10 @@ if submitted:
     pmt_a = pmt_price(saldo_devedor, TAXA_A, N_A)
     pmt_b = pmt_price(saldo_devedor, TAXA_B, N_B)
 
+    _ok_a = pmt_a <= LIMITE_A * garantido_medio
+    _ok_b = pmt_b <= LIMITE_B * garantido_medio
+    _rid  = _registrar(nome_ies.strip(), saldo_devedor, garantido_medio,
+                       data_repasse, primeiro_venc, pmt_a, pmt_b, _ok_a, _ok_b)
     st.session_state["cfd"] = {
         "nome_ies":       nome_ies.strip(),
         "saldo_devedor":  saldo_devedor,
@@ -343,8 +389,9 @@ if submitted:
         "primeiro_venc":  primeiro_venc,
         "pmt_a":          pmt_a,
         "pmt_b":          pmt_b,
-        "ok_a":           pmt_a <= LIMITE_A * garantido_medio,
-        "ok_b":           pmt_b <= LIMITE_B * garantido_medio,
+        "ok_a":           _ok_a,
+        "ok_b":           _ok_b,
+        "rid":            _rid,
     }
 
 if "cfd" in st.session_state:
@@ -357,6 +404,7 @@ if "cfd" in st.session_state:
     pmt_b          = _r["pmt_b"]
     ok_a           = _r["ok_a"]
     ok_b           = _r["ok_b"]
+    _rid           = _r.get("rid")
 
     st.markdown("---")
     st.markdown(f"#### 📊 Resultados para **{nome_ies.strip()}**")
@@ -503,10 +551,13 @@ if "cfd" in st.session_state:
             parcelas=exp_parcelas,
         )
 
-        st.download_button(
+        downloaded = st.download_button(
             label="⬇  Baixar Proposta em PDF",
             data=pdf_bytes,
             file_name=f"Proposta_Parcelamento_{nome_ies.strip().replace(' ','_')}.pdf",
             mime="application/pdf",
             use_container_width=True,
         )
+        if downloaded:
+            plano_label = "A" if "Plano A" in plano_escolhido else "B"
+            _marcar_export(_rid, plano_label)
