@@ -346,12 +346,12 @@ with st.form("form_cfd"):
         )
         saldo_devedor = st.number_input(
             "Saldo Devedor a Renegociar (R$)",
-            min_value=0.01, value=100_000.00, step=1_000.00, format="%,.2f",
+            min_value=0.01, value=100_000.00, step=1_000.00, format="%.2f",
         )
     with col2:
         garantido_medio = st.number_input(
             "Garantido Médio — Últimos 3 Meses (R$)",
-            min_value=0.01, value=80_000.00, step=1_000.00, format="%,.2f",
+            min_value=0.01, value=80_000.00, step=1_000.00, format="%.2f",
         )
         data_repasse = st.date_input(
             "Data do Repasse em Aberto",
